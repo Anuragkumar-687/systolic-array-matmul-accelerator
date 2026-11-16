@@ -188,8 +188,13 @@ The default configuration ($W = 8$, \texttt{ACC\_W} $= 24$) is therefore safe
 for arrays up to $N = 256$.
 
 \section{Prototype and Results}
-The prototype is simulated with Icarus Verilog \cite{iverilog}. The
-self-checking testbench loads matrices, pulses \texttt{start}, waits for
+The prototype is simulated with Icarus Verilog \cite{iverilog}. A unit
+testbench first checks one processing element in isolation: reset and clear,
+one MAC per enabled cycle, operand forwarding, holding state when disabled,
+signed corner cases and 500 random cycles against a behavioural model. All 511
+checks pass.
+
+The array-level self-checking testbench loads matrices, pulses \texttt{start}, waits for
 \texttt{done} and compares all $N^2$ outputs with a behavioural triple-loop
 model of \eqref{eq:matmul}. Each run applies four directed tests (identity,
 counting pattern, all operands at the most negative value, and mixed-sign
@@ -220,7 +225,12 @@ $N$ & PEs & Latency & Single-MAC & Cycle-count \\
 \end{table}
 
 The measured latency equals $3N-1$ in every case, matching the schedule
-derived in Section~III. The cost of this speed is area: the design uses $N^2$
+derived in Section~III. The random multiplications are issued back to back
+with no idle cycle between them, so the measured throughput is one matrix every
+$3N-1$ cycles: 100 matrices take 1100 cycles for $N=4$ and 4700 cycles for
+$N=16$. This corresponds to $N^3/(3N-1)$ MAC operations per cycle, 5.82 for
+$N=4$ and 87.15 for $N=16$, against 1 for a single-MAC datapath, so the ratio in
+Table~\ref{tab:results} is also the throughput gain in MACs per cycle. The cost of this speed is area: the design uses $N^2$
 multipliers. Synthesis results (area, maximum frequency and power) have not yet
 been obtained and are planned for Phase~II.
 

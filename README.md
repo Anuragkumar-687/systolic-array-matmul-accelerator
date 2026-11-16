@@ -59,9 +59,11 @@ product is ready after **3N − 1 clock cycles** instead of N³.
 rtl/pe.v               processing element: multiplier + accumulator + 2 forwarding registers
 rtl/systolic_array.v   N x N mesh of processing elements (generate loops)
 rtl/matmul_accel.v     top level: start/busy/done controller and skewed input feeders
+tb/tb_pe.v             unit testbench for one processing element
 tb/tb_matmul_accel.v   self-checking testbench with a behavioural reference model
 report/                IEEE-format project report (LaTeX source and PDF)
-docs/sim_results.txt   captured simulation output
+docs/sim_results.txt   captured simulation output (array)
+docs/pe_sim_results.txt  captured simulation output (single PE)
 Makefile               simulation and report build
 ```
 
@@ -84,6 +86,7 @@ Overflow cannot occur when `ACC_W >= 2*DATA_W + ceil(log2(N))`.
 Requires [Icarus Verilog](https://steveicarus.github.io/iverilog/) (`brew install icarus-verilog` or `apt install iverilog`).
 
 ```bash
+make sim-pe         # unit test of one processing element (511 checks)
 make sim            # 4 x 4 array, 8-bit operands
 make sim N=8        # 8 x 8 array
 make sim N=4 DATA_W=16 ACC_W=40
@@ -105,17 +108,23 @@ Each run applies 4 directed tests (identity, counting pattern, all operands at t
 most negative value, mixed-sign extremes) and 100 back-to-back random
 multiplications, comparing all N² outputs with a triple-loop reference model.
 
-| N | Processing elements | Measured latency (cycles) | Single-MAC datapath (N³ cycles) | Tests |
-| --- | --- | --- | --- | --- |
-| 2 | 4 | 5 | 8 | 104 / 104 pass |
-| 3 | 9 | 8 | 27 | 104 / 104 pass |
-| 4 | 16 | 11 | 64 | 104 / 104 pass |
-| 5 | 25 | 14 | 125 | 104 / 104 pass |
-| 8 | 64 | 23 | 512 | 104 / 104 pass |
-| 16 | 256 | 47 | 4096 | 104 / 104 pass |
+| N | Processing elements | Measured latency (cycles) | Measured throughput (MAC/cycle) | Single-MAC datapath (N³ cycles) | Tests |
+| --- | --- | --- | --- | --- | --- |
+| 2 | 4 | 5 | 1.60 | 8 | 104 / 104 pass |
+| 3 | 9 | 8 | 3.38 | 27 | 104 / 104 pass |
+| 4 | 16 | 11 | 5.82 | 64 | 104 / 104 pass |
+| 5 | 25 | 14 | 8.93 | 125 | 104 / 104 pass |
+| 8 | 64 | 23 | 22.26 | 512 | 104 / 104 pass |
+| 16 | 256 | 47 | 87.15 | 4096 | 104 / 104 pass |
 
-The N³ column is an analytical cycle count for a datapath with one MAC unit, not a
-measurement of a real processor. Synthesis results (area, f<sub>max</sub>, power)
+Throughput is measured over the 100 back-to-back random multiplications (one
+matrix every 3N − 1 cycles, no idle cycle in between); a single MAC unit does
+1 MAC/cycle. The N³ column is an analytical cycle count for a datapath with one
+MAC unit, not a measurement of a real processor.
+
+The processing element is also tested on its own (`make sim-pe`): reset, clear,
+accumulate, hold when disabled, signed corner cases and 500 random cycles against
+a model, 511 checks in total, all passing. Synthesis results (area, f<sub>max</sub>, power)
 are not available yet; they are planned for Phase II.
 
 ## Roadmap (Phase II)
