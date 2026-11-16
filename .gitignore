@@ -1,0 +1,12 @@
+# simulation outputs
+build/
+*.vcd
+*.vvp
+
+# LaTeX intermediates
+report/*.aux
+report/*.log
+report/*.out
+
+# OS
+.DS_Store
