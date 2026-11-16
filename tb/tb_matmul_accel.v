@@ -50,6 +50,11 @@ module tb_matmul_accel;
     integer r, c, k, idx, n;
     integer tests, failures, mism, cycles, seed;
 
+    // free-running cycle counter for the throughput measurement
+    integer cyc, t0;
+    initial cyc = 0;
+    always @(posedge clk) cyc = cyc + 1;
+
     // behavioural reference model
     task golden;
         begin
@@ -89,7 +94,9 @@ module tb_matmul_accel;
             end
             golden;
 
-            @(negedge clk); start = 1'b1;
+            // called on a negedge, so start can go high right away:
+            // back-to-back runs then have no idle cycle between them
+            start = 1'b1;
             @(negedge clk); start = 1'b0;
             cycles = 1;
             while (!done) begin
@@ -164,6 +171,7 @@ module tb_matmul_accel;
         run_test("mixed sign", 1);
 
         // 5. back-to-back random multiplications
+        t0 = cyc;
         for (n = 0; n < NUM_RANDOM; n = n + 1) begin
             for (idx = 0; idx < N*N; idx = idx + 1) begin
                 A[idx] = $random(seed);
@@ -172,6 +180,9 @@ module tb_matmul_accel;
             run_test("random", n == 0);
         end
         $display("    ... %0d random multiplications checked", NUM_RANDOM);
+        $display("    throughput: %0d matrices in %0d cycles = %0d cycles/matrix, %0.2f MAC/cycle",
+                 NUM_RANDOM, cyc - t0, (cyc - t0) / NUM_RANDOM,
+                 (1.0 * N * N * N * NUM_RANDOM) / (cyc - t0));
 
         $display("==============================================================");
         if (failures == 0)

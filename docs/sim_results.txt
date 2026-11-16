@@ -88,7 +88,8 @@ VCD info: dumpfile waves.vcd opened for output.
       [  -8469  -1415   9786    440 ]
       [ -11396  -7105   -919   -812 ]
     ... 100 random multiplications checked
+    throughput: 100 matrices in 1100 cycles = 11 cycles/matrix, 5.82 MAC/cycle
 ==============================================================
  ALL 104 TESTS PASSED
 ==============================================================
-tb/tb_matmul_accel.v:182: $finish called at 12510000 (1ps)
+tb/tb_matmul_accel.v:193: $finish called at 11470000 (1ps)
