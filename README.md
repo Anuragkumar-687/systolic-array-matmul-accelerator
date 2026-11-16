@@ -9,7 +9,7 @@ testbench.
 | Deliverable | Where |
 | --- | --- |
 | Project report (IEEE format) | [`report/report.pdf`](report/report.pdf) · source: [`report/report.tex`](report/report.tex) |
-| Prototype / demo video | _link to be added_ |
+| Prototype / demo video | [Google Drive folder](https://drive.google.com/drive/folders/1Z8AsM1CW7a-qBB9LZiPCugjUo8qW30LH?usp=sharing) |
 | RTL implementation | [`rtl/`](rtl) |
 | Testbench | [`tb/`](tb) |
 | Simulation log | [`docs/sim_results.txt`](docs/sim_results.txt) |
