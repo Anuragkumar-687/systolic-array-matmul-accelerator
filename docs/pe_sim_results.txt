@@ -1,0 +1,22 @@
+iverilog -g2005 -Wall -o build/tb_pe rtl/pe.v tb/tb_pe.v
+cd build && vvp tb_pe
+VCD info: dumpfile pe_waves.vcd opened for output.
+==============================================================
+ Processing element unit test (DATA_W = 8, ACC_W = 24)
+==============================================================
+[PASS] reset: acc=0 a_out=0 b_out=0
+[PASS] 3 x 4: acc=12 a_out=3 b_out=4
+[PASS] + 5 x -6: acc=-18 a_out=5 b_out=-6
+[PASS] en=0 holds: acc=-18 a_out=5 b_out=-6
+[PASS] + -128 x -128: acc=16366 a_out=-128 b_out=-128
+[PASS] + -128 x 127: acc=110 a_out=-128 b_out=127
+[PASS] + 127 x 127: acc=16239 a_out=127 b_out=127
+[PASS] + 0 x 55: acc=16239 a_out=0 b_out=55
+[PASS] clr wins over en: acc=0 a_out=0 b_out=0
+[PASS] 2 x 10 after clr: acc=20 a_out=2 b_out=10
+[PASS] clr: acc=0 a_out=0 b_out=0
+    ... 500 random cycles checked against the model
+==============================================================
+ ALL 511 PE CHECKS PASSED
+==============================================================
+tb/tb_pe.v:146: $finish called at 5120000 (1ps)

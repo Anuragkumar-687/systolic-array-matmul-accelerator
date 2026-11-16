@@ -2,6 +2,7 @@
 #
 #   make sim              run the self-checking testbench (N=4, 8-bit operands)
 #   make sim N=8          same, for an 8 x 8 array
+#   make sim-pe           unit test of one processing element
 #   make waves            open the waveform in GTKWave
 #   make report           build report/report.pdf (needs tectonic)
 
@@ -15,7 +16,13 @@ RTL := rtl/pe.v rtl/systolic_array.v rtl/matmul_accel.v
 TB  := tb/tb_matmul_accel.v
 TOP := tb_matmul_accel
 
-.PHONY: sim waves report clean
+.PHONY: sim sim-pe waves report clean
+
+# unit test of a single processing element
+sim-pe:
+	@mkdir -p build
+	$(IVERILOG) -g2005 -Wall -o build/tb_pe rtl/pe.v tb/tb_pe.v
+	cd build && $(VVP) tb_pe
 
 sim:
 	@mkdir -p build
