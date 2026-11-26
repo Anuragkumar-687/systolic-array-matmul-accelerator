@@ -68,7 +68,7 @@ waves: sim
 	gtkwave build/waves.vcd
 
 report:
-	cd report && tectonic report.tex
+	cd report && tectonic report.tex   # final report; Phase I report is in report/phase1/
 
 clean:
 	rm -rf build
