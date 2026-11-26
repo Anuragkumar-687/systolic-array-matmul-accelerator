@@ -1,0 +1,7 @@
+iverilog -g2005 -Wall -P tb_matmul_top.N=4 \
+		-o build/tb_top rtl/mac_unit.v rtl/pe.v rtl/skew_buffer.v rtl/systolic_array.v rtl/matmul_accel.v rtl/seq_matmul.v rtl/matmul_top.v tb/tb_matmul_top.v
+cd build && vvp tb_top
+==============================================================
+ MATRIX DATA INTERFACE: ALL 320 ELEMENTS CORRECT (20 matrices, both cores)
+==============================================================
+tb/tb_matmul_top.v:93: $finish called at 29430000 (1ps)
