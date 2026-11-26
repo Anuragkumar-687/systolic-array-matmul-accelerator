@@ -7,6 +7,7 @@
 #   make sim-top          matrix data interface (narrow FPGA port), both cores
 #   make all-tests        every testbench above
 #   make synth            Yosys + nextpnr: resources and Fmax (synth/results.csv)
+#   make figures          diagrams, waveform and charts in docs/figures (needs matplotlib)
 #   make waves            open the waveform in GTKWave
 #   make report           build report/report.pdf (needs tectonic)
 
@@ -21,7 +22,7 @@ SEQ := rtl/seq_matmul.v
 TB  := tb/tb_matmul_accel.v
 TOP := tb_matmul_accel
 
-.PHONY: sim sim-pe compare sim-top all-tests synth waves report clean
+.PHONY: sim sim-pe compare sim-top all-tests synth figures waves report clean
 
 # unit test of a single processing element
 sim-pe:
@@ -54,6 +55,14 @@ all-tests: sim-pe sim compare sim-top
 
 synth:
 	./synth/run_synth.sh
+
+PYTHON ?= python3
+
+figures:
+	$(MAKE) sim N=3
+	$(PYTHON) tools/vcd_to_png.py
+	$(PYTHON) tools/draw_diagrams.py
+	$(PYTHON) tools/systolic_model.py --plot
 
 waves: sim
 	gtkwave build/waves.vcd
