@@ -38,7 +38,7 @@ sequential single-MAC baseline.
 | Wall-clock speed-up vs baseline | **10.2×** | 5.9× | 1× |
 | Xilinx 7-series (LUT / FF / DSP48E1) | 707 / 735 / 16 | 600 / 639 / 16 | 1141 / 973 / 3 |
 
-All testbenches pass: 511/511 PE checks, 104/104 array tests at N = 2, 3, 4, 5, 8, 16
+All testbenches pass: 511/511 PE checks, 222/222 input-buffer checks, 104/104 array tests at N = 2, 3, 4, 5, 8, 16
 (both feeder versions, and 16-bit operands), 205/205 comparison tests × 3 designs
 at N = 3 and 4, and 320/320 elements through the data interface.
 
@@ -68,6 +68,7 @@ product is ready after **3N − 1 clock cycles** instead of N³.
 | `seq_matmul.v` sequential baseline | A real design to compare against, not just the N³ formula |
 | `matmul_top.v` matrix data interface | 640 parallel pins → a narrow register-mapped port that fits an FPGA |
 | `tb_compare.v`, `tb_matmul_top.v` | Same inputs to all three designs, Q4.4 fixed-point test, cycle measurements, interface test |
+| `tb_skew_buffer.v` | Unit test of the input buffer on its own: delays 0, 1 and 3, hold, reload while shifting, random cycles against a model |
 | `synth/` | Yosys + nextpnr resource and Fmax results; Vivado script for Artix-7 |
 | `tools/`, `docs/figures/` | Block diagram, PE and FSM diagrams, waveform, performance charts |
 | `report/report.pdf` | Final IEEE report with Results and Discussion and Conclusion |
@@ -83,6 +84,7 @@ rtl/matmul_accel.v     systolic core: controller + input buffers + mesh
 rtl/seq_matmul.v       sequential baseline: one MAC, i-j-k loop
 rtl/matmul_top.v       matrix data interface (narrow FPGA port), selects the core
 tb/tb_pe.v             unit test of one processing element
+tb/tb_skew_buffer.v    unit test of the input buffer (delays 0, 1, 3)
 tb/tb_matmul_accel.v   array test: directed + random, reference model
 tb/tb_compare.v        systolic (Phase II and I) vs sequential, same inputs
 tb/tb_matmul_top.v     data interface test
@@ -121,6 +123,7 @@ Python with matplotlib.
 
 ```bash
 make sim-pe           # one processing element (511 checks)
+make sim-skew         # input buffer (222 checks)
 make sim              # 4 x 4 array (104 tests); make sim N=3, N=8, ...
 make compare          # systolic vs sequential baseline, cycles and speed-up
 make sim-top          # matrix data interface, both cores
@@ -135,6 +138,7 @@ Expected endings:
 
 ```
  ALL 511 PE CHECKS PASSED
+ ALL 222 SKEW BUFFER CHECKS PASSED
  ALL 104 TESTS PASSED
  ALL 205 COMPARISON TESTS PASSED (3 designs each)
  MATRIX DATA INTERFACE: ALL 320 ELEMENTS CORRECT (20 matrices, both cores)
