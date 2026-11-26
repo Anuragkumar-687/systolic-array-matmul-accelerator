@@ -1,0 +1,24 @@
+iverilog -g2005 -Wall -P tb_compare.N=4 \
+		-o build/tb_compare rtl/mac_unit.v rtl/pe.v rtl/skew_buffer.v rtl/systolic_array.v rtl/matmul_accel.v rtl/seq_matmul.v tb/tb_compare.v
+cd build && vvp tb_compare
+VCD info: dumpfile compare.vcd opened for output.
+==============================================================
+ Systolic array vs sequential baseline  (N = 4, 8-bit)
+==============================================================
+[PASS] identity x M  latency: systolic 11, phase-I 11, sequential 65 cycles
+[PASS] counting  latency: systolic 11, phase-I 11, sequential 65 cycles
+[PASS] all -128  latency: systolic 11, phase-I 11, sequential 65 cycles
+[PASS] mixed sign  latency: systolic 11, phase-I 11, sequential 65 cycles
+[PASS] Q4.4 fixed point  latency: systolic 11, phase-I 11, sequential 65 cycles
+       C[0][0] = 384 / 256 = 1.500000   (expected 1.5*2.0 - 0.25*2.0*(N-1) = 1.500000)
+    ... 200 random matrices checked on all three designs
+==============================================================
+ PERFORMANCE (N = 4, 64 MACs per matrix)
+   latency    systolic 11 cycles (3N-1), sequential 65 cycles (N^3+1)
+   throughput systolic 11 cycles/matrix = 5.82 MAC/cycle
+              sequential 65 cycles/matrix = 0.98 MAC/cycle
+   speed-up in cycles: 5.91x
+==============================================================
+ ALL 205 COMPARISON TESTS PASSED (3 designs each)
+==============================================================
+tb/tb_compare.v:207: $finish called at 148910000 (1ps)
