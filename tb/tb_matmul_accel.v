@@ -105,6 +105,15 @@ module tb_matmul_accel;
             end
 
             mism = 0;
+            if (cycles !== 3*N - 1) begin
+                mism = mism + 1;
+                $display("    LATENCY MISMATCH: got %0d cycles, expected %0d",
+                         cycles, 3*N - 1);
+            end
+            if (busy !== 1'b0) begin
+                mism = mism + 1;
+                $display("    CONTROL MISMATCH: busy=%b when done=1 (expected 0)", busy);
+            end
             for (idx = 0; idx < N*N; idx = idx + 1) begin
                 got = c_flat[idx*ACC_W +: ACC_W];
                 if (got !== G[idx]) begin
@@ -170,7 +179,22 @@ module tb_matmul_accel;
         end
         run_test("mixed sign", 1);
 
-        // 5. back-to-back random multiplications
+        // 5. zero matrix corner case + verify done holds across idle cycles
+        for (idx = 0; idx < N*N; idx = idx + 1) begin
+            A[idx] = 0;
+            B[idx] = idx + 1;
+        end
+        run_test("zero x M", 1);
+        repeat (2) begin
+            @(negedge clk);
+            if (done !== 1'b1 || busy !== 1'b0) begin
+                failures = failures + 1;
+                $display("[FAIL] done/busy did not hold while idle (done=%b busy=%b)",
+                         done, busy);
+            end
+        end
+
+        // 6. back-to-back random multiplications
         t0 = cyc;
         for (n = 0; n < NUM_RANDOM; n = n + 1) begin
             for (idx = 0; idx < N*N; idx = idx + 1) begin
