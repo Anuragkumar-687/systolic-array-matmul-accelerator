@@ -12,7 +12,7 @@ N        ?= 4
 DATA_W   ?= 8
 ACC_W    ?= 24
 
-RTL := rtl/mac_unit.v rtl/pe.v rtl/systolic_array.v rtl/matmul_accel.v
+RTL := rtl/mac_unit.v rtl/pe.v rtl/skew_buffer.v rtl/systolic_array.v rtl/matmul_accel.v
 TB  := tb/tb_matmul_accel.v
 TOP := tb_matmul_accel
 
