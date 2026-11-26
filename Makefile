@@ -4,6 +4,8 @@
 #   make sim N=8          same, for an 8 x 8 array
 #   make sim-pe           unit test of one processing element
 #   make compare          systolic array vs sequential baseline (N=4; make compare N=3)
+#   make sim-top          matrix data interface (narrow FPGA port), both cores
+#   make all-tests        every testbench above
 #   make waves            open the waveform in GTKWave
 #   make report           build report/report.pdf (needs tectonic)
 
@@ -18,7 +20,7 @@ SEQ := rtl/seq_matmul.v
 TB  := tb/tb_matmul_accel.v
 TOP := tb_matmul_accel
 
-.PHONY: sim sim-pe compare waves report clean
+.PHONY: sim sim-pe compare sim-top all-tests waves report clean
 
 # unit test of a single processing element
 sim-pe:
@@ -39,6 +41,15 @@ compare:
 	$(IVERILOG) -g2005 -Wall -P tb_compare.N=$(N) \
 		-o build/tb_compare $(RTL) $(SEQ) tb/tb_compare.v
 	cd build && $(VVP) tb_compare
+
+# matrix data interface: write elements, start, read results back
+sim-top:
+	@mkdir -p build
+	$(IVERILOG) -g2005 -Wall -P tb_matmul_top.N=$(N) \
+		-o build/tb_top $(RTL) $(SEQ) rtl/matmul_top.v tb/tb_matmul_top.v
+	cd build && $(VVP) tb_top
+
+all-tests: sim-pe sim compare sim-top
 
 waves: sim
 	gtkwave build/waves.vcd
