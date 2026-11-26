@@ -11,13 +11,23 @@
 // by j cycles, so A[i][k] and B[k][j] meet in PE(i,j) at cycle t = i + j + k.
 //
 // Flattening convention: element [r][c] lives at index (r*N + c).
+//
+// Input feeders (parameter BUFFERED):
+//   1 (default, Phase II) : one skew_buffer shift register per lane. On start
+//                           row i of A / column i of B is loaded behind i zero
+//                           slots and shifted out one element per cycle.
+//   0 (Phase I)           : the original multiplexers, which pick element
+//                           k = t - i with the cycle counter. Kept so that both
+//                           versions can be simulated and synthesised side by side.
+// Both produce the same lane values in every cycle, so latency is 3N-1 either way.
 // -----------------------------------------------------------------------------
 `timescale 1ns/1ps
 
 module matmul_accel #(
     parameter N      = 4,
     parameter DATA_W = 8,
-    parameter ACC_W  = 24
+    parameter ACC_W  = 24,
+    parameter BUFFERED = 1      // 1 = shift-register input buffers, 0 = Phase I muxes
 ) (
     input  wire                     clk,
     input  wire                     rst,
@@ -56,8 +66,10 @@ module matmul_accel #(
             case (state)
                 S_IDLE: begin
                     if (start) begin
-                        a_q   <= a_flat;
-                        b_q   <= b_flat;
+                        if (!BUFFERED) begin    // the buffers keep their own copy
+                            a_q <= a_flat;
+                            b_q <= b_flat;
+                        end
                         t     <= {CNT_W{1'b0}};
                         done  <= 1'b0;
                         state <= S_RUN;
@@ -80,19 +92,48 @@ module matmul_accel #(
     wire [N*DATA_W-1:0] a_edge;
     wire [N*DATA_W-1:0] b_edge;
 
-    genvar i;
+    genvar i, r;
     generate
-        for (i = 0; i < N; i = i + 1) begin : g_feed
-            // lane i is active for cycles i .. i+N-1
-            wire        valid = en && (t >= i) && (t < i + N);
-            wire [31:0] k     = valid ? (t - i) : 32'd0;
+        if (BUFFERED) begin : g_buf
+            // Phase II: input buffers (one shift register per lane)
+            for (i = 0; i < N; i = i + 1) begin : g_lane
+                // gather column i of B: element k is B[k][i]
+                wire [N*DATA_W-1:0] b_col;
+                for (r = 0; r < N; r = r + 1) begin : g_col
+                    assign b_col[r*DATA_W +: DATA_W] = b_flat[(r*N + i)*DATA_W +: DATA_W];
+                end
 
-            // row i of A:    A[i][k]
-            assign a_edge[i*DATA_W +: DATA_W] =
-                valid ? a_q[(i*N + k)*DATA_W +: DATA_W] : {DATA_W{1'b0}};
-            // column i of B: B[k][i]
-            assign b_edge[i*DATA_W +: DATA_W] =
-                valid ? b_q[(k*N + i)*DATA_W +: DATA_W] : {DATA_W{1'b0}};
+                skew_buffer #(.N(N), .DATA_W(DATA_W), .DELAY(i)) u_abuf (
+                    .clk      (clk),
+                    .rst      (rst),
+                    .load     (accept),
+                    .shift    (en),
+                    .din_flat (a_flat[i*N*DATA_W +: N*DATA_W]),   // row i of A
+                    .dout     (a_edge[i*DATA_W +: DATA_W])
+                );
+                skew_buffer #(.N(N), .DATA_W(DATA_W), .DELAY(i)) u_bbuf (
+                    .clk      (clk),
+                    .rst      (rst),
+                    .load     (accept),
+                    .shift    (en),
+                    .din_flat (b_col),                            // column i of B
+                    .dout     (b_edge[i*DATA_W +: DATA_W])
+                );
+            end
+        end else begin : g_mux
+            // Phase I: counter-driven multiplexers
+            for (i = 0; i < N; i = i + 1) begin : g_feed
+                // lane i is active for cycles i .. i+N-1
+                wire        valid = en && (t >= i) && (t < i + N);
+                wire [31:0] k     = valid ? (t - i) : 32'd0;
+
+                // row i of A:    A[i][k]
+                assign a_edge[i*DATA_W +: DATA_W] =
+                    valid ? a_q[(i*N + k)*DATA_W +: DATA_W] : {DATA_W{1'b0}};
+                // column i of B: B[k][i]
+                assign b_edge[i*DATA_W +: DATA_W] =
+                    valid ? b_q[(k*N + i)*DATA_W +: DATA_W] : {DATA_W{1'b0}};
+            end
         end
     endgenerate
 
