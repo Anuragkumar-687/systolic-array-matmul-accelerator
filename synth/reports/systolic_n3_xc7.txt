@@ -1,0 +1,28 @@
+
+10. Printing statistics.
+
+=== matmul_top ===
+
+        +----------Local Count, excluding submodules.
+        | 
+      555 wires
+     1764 wire bits
+       38 public wires
+      691 public wire bits
+       11 ports
+       47 port bits
+      929 cells
+       26   $scopeinfo
+        1   BUFG
+        6   CARRY4
+        9   DSP48E1
+      399   FDRE
+       21   IBUF
+        5   INV
+       23   LUT2
+       64   LUT3
+       25   LUT4
+      113   LUT5
+      211   LUT6
+       26   OBUF
+

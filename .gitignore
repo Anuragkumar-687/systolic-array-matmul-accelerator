@@ -10,3 +10,7 @@ report/*.out
 
 # OS
 .DS_Store
+
+# synthesis intermediates
+synth/reports/*.json
+synth/vivado_reports/
