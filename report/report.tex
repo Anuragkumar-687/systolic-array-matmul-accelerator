@@ -4,12 +4,11 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{url}
-\usepackage{tikz}
-\usetikzlibrary{arrows.meta}
+\graphicspath{{../docs/figures/}}
 
 \begin{document}
 
-\title{Systolic Array Matrix Multiplication Accelerator:\\A Parameterised Verilog Implementation}
+\title{Systolic Array Matrix Multiplication Accelerator:\\Design, Verification and FPGA Evaluation}
 
 \author{
 \IEEEauthorblockN{Anurag Kumar\IEEEauthorrefmark{1},
@@ -30,245 +29,429 @@ Enrolment Nos.: \IEEEauthorrefmark{1}2401010088,
 \maketitle
 
 \begin{abstract}
-Matrix multiplication dominates the run time of machine-learning inference,
-signal processing and scientific workloads, yet a general-purpose processor
-executes its $N^3$ multiply-accumulate operations essentially one after another.
-This report presents the Phase~I prototype of a systolic array accelerator that
-computes $C = A \times B$ for $N \times N$ signed integer matrices. The design
-is a two-dimensional mesh of $N^2$ identical processing elements, each
-containing one multiplier, one adder and three registers, connected only to
-their nearest neighbours. Operands are injected along the left and top edges
-with a diagonal skew so that matching elements meet in the correct cell at the
-correct cycle. The accelerator is written in synthesisable, fully parameterised
-Verilog-2005 and verified with a self-checking testbench against a behavioural
-reference model. For array sizes $N = 2$ to $16$ every directed and random test
-passes, and the measured latency is exactly $3N-1$ clock cycles, compared with
-$N^3$ cycles for a single multiply-accumulate datapath.
+Matrix multiplication dominates machine-learning inference, and dedicated
+accelerators execute it on two-dimensional systolic arrays of
+multiply-accumulate (MAC) cells. This report presents the complete design of a
+parameterised $N \times N$ output-stationary systolic array in synthesisable
+Verilog, together with a sequential single-MAC baseline that shares its
+interface. The design comprises a MAC unit, a processing element (PE),
+shift-register input buffers that skew the operands, a two-state controller and
+a register-mapped matrix data interface for FPGA use. It operates on signed
+8-bit operands, which can be read as Q4.4 fixed point, with overflow-free 24-bit
+accumulators. Self-checking testbenches compare every result against a
+behavioural reference model: all tests pass for array sizes 2 to 16. A $4\times4$
+product takes $3N-1 = 11$ cycles against $N^3+1 = 65$ for the baseline. After
+place-and-route on a Lattice iCE40 HX8K, the array runs at 79.0\,MHz against
+45.8\,MHz for the baseline, a 10.2$\times$ wall-clock speed-up. Replacing the
+Phase~I multiplexer feeders with input buffers raised the maximum clock from
+45.6 to 79.0\,MHz without changing the latency.
 \end{abstract}
 
 \begin{IEEEkeywords}
-systolic array, matrix multiplication, hardware accelerator, Verilog, RTL,
-processing element, AI hardware
+systolic array, matrix multiplication, multiply-accumulate, hardware
+accelerator, FPGA, Verilog, fixed point, AI hardware
 \end{IEEEkeywords}
 
+% ==========================================================================
 \section{Introduction}
 The end of Dennard scaling has moved computer architecture towards
-domain-specific accelerators, which gain efficiency by matching the hardware
-structure to the structure of one important computation \cite{hennessy}. Dense
-matrix multiplication is the most valuable such computation: fully connected
-and convolutional neural-network layers, digital filters and linear solvers all
-reduce to it \cite{sze}.
-
-For two $N \times N$ matrices the product is
+domain-specific accelerators, which gain efficiency by matching the hardware to
+the structure of one important computation \cite{hennessy}. Dense matrix
+multiplication is the most valuable such computation: fully connected and
+convolutional neural-network layers, digital filters and linear solvers all
+reduce to it \cite{sze}. For two $N \times N$ matrices
 \begin{equation}
 C_{ij} = \sum_{k=0}^{N-1} A_{ik} B_{kj}, \qquad 0 \le i,j < N,
 \label{eq:matmul}
 \end{equation}
-which needs $N^3$ multiply-accumulate (MAC) operations. On a scalar processor
-these are serialised through one arithmetic unit and every operand is fetched
-from memory, so performance is limited by both computation and memory traffic.
+which needs $N^3$ MAC operations. A scalar processor serialises them through one
+arithmetic unit and fetches every operand from memory.
 
-A systolic array removes both limits. It is a regular grid of simple cells that
-compute in parallel and pass data only to adjacent cells on every clock tick,
-much as the heart pumps blood in rhythmic pulses \cite{kung1982}. Each operand
-is read from memory once and then reused by a whole row or column of cells as it
-travels through the grid.
+A systolic array is a grid of simple cells that compute in parallel and pass
+data only to adjacent cells on every clock tick, so each operand read from
+memory is reused by a whole row or column of cells \cite{kung1982}.
 
-The objective of this project is to design, implement and verify such an
-accelerator at the register-transfer level. Phase~I, reported here, delivers a
-working and verified RTL prototype together with its verification environment.
+Phase~I of this project delivered a verified RTL prototype. Phase~II, reported
+here, completes it with the modules the project brief lists (MAC unit, input
+buffers, matrix data interface), a sequential baseline built in the same flow,
+fixed-point tests, FPGA synthesis with resource and timing results, and a
+comparison of the alternatives.
 
+% ==========================================================================
 \section{Literature Review}
 Kung and Leiserson introduced systolic arrays as an architecture suited to
 VLSI, in which a few types of simple cells are replicated and connected by
-short, local wires \cite{kungleiserson}. Kung later argued that this style
-gives simple and regular designs, high concurrency and a balance between
-computation and input/output, which makes it attractive for compute-bound
-algorithms such as matrix arithmetic \cite{kung1982}. S.~Y.~Kung formalised the
-design procedure: an algorithm is written as a dependence graph and then mapped
-to an array by choosing a projection direction and a linear schedule
-\cite{sykung}. The architecture used in this work corresponds to mapping the
+short, local wires \cite{kungleiserson}. Kung later argued that this style gives
+simple and regular designs, high concurrency and a balance between computation
+and input/output \cite{kung1982}. S.~Y.~Kung formalised the design procedure: an
+algorithm is written as a dependence graph and mapped to an array by choosing a
+projection direction and a linear schedule \cite{sykung}. Our design maps the
 three-dimensional dependence graph of \eqref{eq:matmul} along the $k$ axis, so
-that each cell owns one output element.
+that each cell owns one output element (output-stationary dataflow).
 
 Interest in systolic arrays returned with deep learning. Google's Tensor
-Processing Unit is built around a matrix multiply unit of $256 \times 256$
-8-bit MAC cells and reports large gains in performance per watt over
-contemporary CPUs and GPUs for inference \cite{tpu}. Gemmini provides an
+Processing Unit is built around a $256 \times 256$ array of 8-bit MAC cells and
+reports large gains in performance per watt over contemporary CPUs and GPUs for
+inference \cite{tpu}; it uses a weight-stationary dataflow. Gemmini is an
 open-source generator of systolic-array accelerators integrated with RISC-V
-processors, allowing the full hardware--software stack to be evaluated
-\cite{gemmini}. Wei \emph{et al.} generate systolic arrays for convolutional
-networks on FPGAs automatically from a high-level description \cite{wei}.
-Eyeriss shows a related spatial architecture in which a grid of processing
-elements with local data reuse reduces memory accesses, the dominant energy
-cost \cite{eyeriss}. Sze \emph{et al.} survey these approaches and identify
-operand reuse and local communication as the common source of efficiency
-\cite{sze}.
+processors \cite{gemmini}. Wei \emph{et al.} generate systolic arrays for
+convolutional networks on FPGAs from a high-level description \cite{wei}.
+Eyeriss introduced a row-stationary spatial architecture in which local data
+reuse reduces memory accesses, the dominant energy cost \cite{eyeriss}. Sze
+\emph{et al.} survey these approaches and identify operand reuse and local
+communication as the common source of efficiency \cite{sze}. Jacob
+\emph{et al.} showed that 8-bit integer arithmetic with wider accumulators
+preserves inference accuracy \cite{jacob}, which motivates our 8-bit operands.
+Open-source tools now cover the whole FPGA flow from Verilog to bitstream
+\cite{yosys,nextpnr}, which we use for synthesis and timing.
 
-The surveyed systems are large and target full neural networks. This project
-isolates the core idea in a compact, parameterised and openly verifiable RTL
-design, suitable for studying the latency, area and scheduling trade-offs
-covered in a computer architecture course.
+These systems are large and target full networks. This project isolates the
+core idea in a compact, parameterised and openly verifiable design, and
+measures what it costs and gains against a sequential baseline.
 
+% ==========================================================================
 \section{Proposed Solution}
-\subsection{Architecture Overview}
-The accelerator (Fig.~\ref{fig:array}) consists of three Verilog modules:
-\texttt{pe}, the processing element; \texttt{systolic\_array}, an $N \times N$
-mesh of processing elements built with \texttt{generate} loops; and
-\texttt{matmul\_accel}, the top level containing the controller and the skewed
-input feeders. The matrix size $N$, operand width \texttt{DATA\_W} and
-accumulator width \texttt{ACC\_W} are parameters.
+\subsection{Architecture}
+Fig.~\ref{fig:block} shows the complete design. \texttt{matmul\_top} is the
+matrix data interface: it receives $A$ and $B$ one element at a time and holds
+them in register files. \texttt{matmul\_accel} is the systolic core: a
+controller, $2N$ input buffers and the \texttt{systolic\_array} of $N^2$ PEs.
+Table~\ref{tab:modules} lists every module. All are parameterised by $N$, the
+operand width \texttt{DATA\_W} and the accumulator width \texttt{ACC\_W}.
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
-\begin{tikzpicture}[>=Stealth, font=\scriptsize,
-  pe/.style={draw, fill=gray!12, minimum size=8.5mm, inner sep=0pt}]
-\foreach \i in {0,1,2} {
-  \foreach \j in {0,1,2} {
-    \node[pe] (pe\i\j) at (\j*1.7, -\i*1.45) {PE$_{\i\j}$};
-  }
-}
-\foreach \i in {0,1,2} {
-  \draw[->] (-1.25, -\i*1.45) node[left] {row \i{} of $A$} -- (pe\i0);
-  \draw[->] (pe\i0) -- (pe\i1);
-  \draw[->] (pe\i1) -- (pe\i2);
-}
-\foreach \j in {0,1,2} {
-  \draw[->] (\j*1.7, 1.05) node[above] {col \j{} of $B$} -- (pe0\j);
-  \draw[->] (pe0\j) -- (pe1\j);
-  \draw[->] (pe1\j) -- (pe2\j);
-}
-\end{tikzpicture}
-\caption{Systolic mesh for $N=3$. Operands of $A$ travel left to right and
-operands of $B$ travel top to bottom; PE$_{ij}$ accumulates $C_{ij}$.}
-\label{fig:array}
-\end{figure}
+\includegraphics[width=0.82\textwidth]{block_diagram.png}
+\caption{Phase II architecture for $N = 3$. Orange: operands of $A$ (moving
+right); blue: operands of $B$ (moving down).}
+\label{fig:block}
+\end{figure*}
 
-\subsection{Processing Element}
-Each processing element has two operand inputs, $a_{in}$ from the left and
-$b_{in}$ from the top, and holds three registers. On every enabled clock edge
-it performs
+\begin{table}[t]
+\caption{RTL modules}
+\label{tab:modules}
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+Module & Function \\
+\midrule
+\texttt{mac\_unit} & signed multiply, accumulate, synchronous clear \\
+\texttt{pe} & MAC unit + right/down forwarding registers \\
+\texttt{systolic\_array} & $N \times N$ mesh of PEs (generate loops) \\
+\texttt{skew\_buffer} & input buffer: shift register with delay $d$ \\
+\texttt{matmul\_accel} & controller + input buffers + mesh \\
+\texttt{seq\_matmul} & baseline: one MAC, $i,j,k$ loop \\
+\texttt{matmul\_top} & matrix data interface, selects the core \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Processing Element and MAC Unit}
+Each PE (Fig.~\ref{fig:pe}) receives $a_{in}$ from the left and $b_{in}$ from the
+top. On every enabled clock edge it performs
 \begin{align}
 acc &\leftarrow acc + a_{in} \cdot b_{in}, \nonumber\\
 a_{out} &\leftarrow a_{in}, \qquad b_{out} \leftarrow b_{in}.
 \end{align}
-The cell therefore computes one MAC per cycle and forwards both operands
-unchanged to its right and bottom neighbours. Because all wires are
-nearest-neighbour, the critical path is one multiplier followed by one adder
-and does not grow with $N$.
+The product is kept at full $2W$-bit precision and sign-extended into the
+accumulator. In Phase~II the multiply-accumulate datapath was moved into its own
+\texttt{mac\_unit} module, as the project brief suggests; the PE keeps the two
+forwarding registers. A synchronous \texttt{clr} from the controller resets the
+accumulator before each new matrix.
 
-\subsection{Input Skewing and Scheduling}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{pe_microarch.png}
+\caption{Processing element: one MAC per clock; operands are forwarded one clock later.}
+\label{fig:pe}
+\end{figure}
+
+\subsection{Input Skewing with Input Buffers}
 For PE$_{ij}$ to compute \eqref{eq:matmul}, $A_{ik}$ and $B_{kj}$ must arrive
 together. An operand entering row $i$ needs $j$ cycles to reach column $j$, and
-an operand entering column $j$ needs $i$ cycles to reach row $i$. The feeders
-therefore delay row $i$ of $A$ by $i$ cycles and column $j$ of $B$ by $j$
-cycles: at cycle $t$ the left edge of row $i$ receives $A_{i,\,t-i}$ and the top
-edge of column $j$ receives $B_{t-j,\,j}$, with zeros outside the valid range.
-Both operands with index $k$ then meet in PE$_{ij}$ at cycle
+one entering column $j$ needs $i$ cycles to reach row $i$. Row $i$ of $A$ is
+therefore delayed by $i$ cycles and column $j$ of $B$ by $j$ cycles, and the
+operands with index $k$ meet in PE$_{ij}$ at cycle
 \begin{equation}
 t = i + j + k .
 \end{equation}
-The last product is formed in PE$_{N-1,N-1}$ at $t = 3N-3$, so the computation
-needs $3N-2$ cycles, plus one cycle to latch the operands.
+
+In Phase~I the delay was produced by multiplexers that select element $k = t - i$
+using the controller's cycle counter $t$. In Phase~II each lane has a
+\texttt{skew\_buffer}: on \texttt{start}, row $i$ of $A$ (or column $i$ of $B$)
+is loaded behind $i$ zero slots, and one element is shifted out per cycle. The
+lane values are identical in every cycle, but each edge PE now reads directly
+from a register, so no comparator or multiplexer sits in front of the first row
+and column. The parameter \texttt{BUFFERED} selects either version, so both
+can be simulated and synthesised side by side.
 
 \subsection{Controller}
-A two-state controller sequences the operation. On \texttt{start} it latches
-both matrices, clears all accumulators and enters the run state, where a cycle
-counter drives the feeders. When the counter reaches $3N-3$ it raises
-\texttt{done}, which stays high until the next \texttt{start}; the results
-remain stable in the accumulators.
+The controller (Fig.~\ref{fig:fsm}) has two states. In IDLE, \texttt{start}
+loads the buffers, clears every PE and enters RUN. RUN enables the PEs and
+buffers while $t$ counts from 0 to $3N-3$, the cycle in which the last pair
+($i=j=k=N-1$) meets. It then sets \texttt{done}, which stays high until the next
+\texttt{start}. The latency from \texttt{start} to \texttt{done} is
+\begin{equation}
+1 + (3N - 2) = 3N - 1 \ \text{cycles.}
+\end{equation}
 
-\subsection{Bit-Width Selection}
-With $W$-bit signed operands the largest product magnitude is $2^{2W-2}$ and
-each accumulator sums $N$ products, so overflow is impossible when
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fsm.png}
+\caption{Controller state-transition diagram.}
+\label{fig:fsm}
+\end{figure}
+
+\subsection{Number Format}
+Operands are signed 8-bit two's-complement values. They can be read as integers
+or as Q4.4 fixed point (range $-8$ to $7.9375$, step $1/16$); the hardware is
+identical, and a product of two Q4.4 numbers is Q8.8. The largest product
+magnitude is $2^{2W-2} = 16{,}384$, and each accumulator sums $N$ products, so
+overflow is impossible when
 \begin{equation}
 \texttt{ACC\_W} \ge 2W + \lceil \log_2 N \rceil .
 \end{equation}
-The default configuration ($W = 8$, \texttt{ACC\_W} $= 24$) is therefore safe
-for arrays up to $N = 256$.
+The default 24-bit accumulator is safe for arrays up to $N = 256$.
 
-\section{Prototype and Results}
-The prototype is simulated with Icarus Verilog \cite{iverilog}. A unit
-testbench first checks one processing element in isolation: reset and clear,
-one MAC per enabled cycle, operand forwarding, holding state when disabled,
-signed corner cases and 500 random cycles against a behavioural model. All 511
-checks pass.
+\subsection{Sequential Baseline}
+\texttt{seq\_matmul} has the same ports, number format and handshake as
+\texttt{matmul\_accel}, but one shared MAC. A counter walks $i$, $j$, $k$,
+selects $A_{ik}$ and $B_{kj}$ through $N^2$-to-1 multiplexers and writes
+$C_{ij}$ after every $N$ products. It needs $N^3$ compute cycles, so its latency
+is $N^3 + 1$ cycles.
 
-The array-level self-checking testbench loads matrices, pulses \texttt{start}, waits for
-\texttt{done} and compares all $N^2$ outputs with a behavioural triple-loop
-model of \eqref{eq:matmul}. Each run applies four directed tests (identity,
-counting pattern, all operands at the most negative value, and mixed-sign
-extremes) followed by 100 back-to-back random multiplications, which also
-checks that the array is cleared correctly between operations.
+\subsection{Matrix Data Interface}
+The core's parallel buses carry $2N^2W + N^2\,\texttt{ACC\_W}$ bits (640 for
+$N = 4$), far more than an FPGA package provides. \texttt{matmul\_top} wraps
+either core (\texttt{ARCH} = 0 systolic, 1 sequential) behind a narrow port:
+\texttt{we}, \texttt{sel\_b}, \texttt{addr} and \texttt{wdata} write one element;
+\texttt{raddr} reads one result. All I/O is registered, so the measured clock
+frequency is set by the core.
 
-All 104 tests pass for $N = 2, 3, 4, 5, 8$ and $16$ with 8-bit operands, and
-for $N = 4$ with 16-bit operands. Table~\ref{tab:results} lists the latency
-measured in simulation. The last two columns compare cycle counts with an
-idealised datapath that has a single MAC unit and needs $N^3$ cycles; this is an
-analytical comparison, not a measurement of a real processor.
+% ==========================================================================
+\section{Verification Methodology}
+All simulation uses Icarus Verilog \cite{iverilog}. Four self-checking
+testbenches compare every output with a behavioural reference model:
+\begin{itemize}
+\item \texttt{tb\_pe}: one PE in isolation, covering reset, clear, enable hold,
+signed extremes and 500 random cycles against a model (511 checks).
+\item \texttt{tb\_matmul\_accel}: identity, counting pattern, all $-128$,
+mixed-sign extremes and 100 back-to-back random matrices (104 tests).
+\item \texttt{tb\_compare}: the buffered array, the Phase~I array and the
+sequential baseline receive the same matrices in the same cycle. It covers the
+directed tests, a Q4.4 fixed-point case and 200 random matrices (205 tests),
+and measures latency and throughput of each design.
+\item \texttt{tb\_matmul\_top}: writes 20 random matrix pairs through the data
+interface and reads back every element from both cores.
+\end{itemize}
+A cycle-accurate Python model of the dataflow (\texttt{tools/systolic\_model.py})
+independently reproduces the schedule. Waveforms are recorded in VCD format and
+rendered with \texttt{tools/vcd\_to\_png.py}.
+
+% ==========================================================================
+\section{Results and Discussion}
+\subsection{Functional Results}
+Every check passes (Table~\ref{tab:verif}). The buffered and multiplexer
+versions of the array produce identical results and identical latency at every
+size. In the Q4.4 test ($A$: 1.5 on the diagonal, $-0.25$ elsewhere; $B$: 2.0 in
+column 0, 0.5 elsewhere), $C_{00}$ is returned as $384/256 = 1.5$ for $N = 4$ and
+$512/256 = 2.0$ for $N = 3$, exactly $1.5 \cdot 2.0 - 0.25 \cdot 2.0 \cdot (N-1)$.
 
 \begin{table}[t]
-\caption{Measured Latency of the Prototype (8-bit Operands)}
-\label{tab:results}
+\caption{Verification results}
+\label{tab:verif}
 \centering
-\begin{tabular}{ccccc}
+\small
+\begin{tabular}{@{}lll@{}}
 \toprule
-$N$ & PEs & Latency & Single-MAC & Cycle-count \\
-    & ($N^2$) & (cycles) & ($N^3$ cycles) & ratio \\
+Testbench & Configurations & Result \\
 \midrule
-2  & 4   & 5  & 8    & 1.6$\times$ \\
-4  & 16  & 11 & 64   & 5.8$\times$ \\
-8  & 64  & 23 & 512  & 22.3$\times$ \\
-16 & 256 & 47 & 4096 & 87.1$\times$ \\
+\texttt{tb\_pe} & 8-bit & 511/511 \\
+\texttt{tb\_matmul\_accel} & $N$ = 2--16, both feeders & 104/104 \\
+\texttt{tb\_matmul\_accel} & $N = 4$, 16-bit operands & 104/104 \\
+\texttt{tb\_compare} & $N$ = 3, 4; 3 designs & 205/205 each \\
+\texttt{tb\_matmul\_top} & $N$ = 3, 4; both cores & 180, 320 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The measured latency equals $3N-1$ in every case, matching the schedule
-derived in Section~III. The random multiplications are issued back to back
-with no idle cycle between them, so the measured throughput is one matrix every
-$3N-1$ cycles: 100 matrices take 1100 cycles for $N=4$ and 4700 cycles for
-$N=16$. This corresponds to $N^3/(3N-1)$ MAC operations per cycle, 5.82 for
-$N=4$ and 87.15 for $N=16$, against 1 for a single-MAC datapath, so the ratio in
-Table~\ref{tab:results} is also the throughput gain in MACs per cycle. The cost of this speed is area: the design uses $N^2$
-multipliers. Synthesis results (area, maximum frequency and power) have not yet
-been obtained and are planned for Phase~II.
+Fig.~\ref{fig:wave} shows the $3\times3$ counting test
+($A = 1\ldots9$, $B = 9\ldots1$). PE$_{11}$ receives its first operands two
+cycles after PE$_{00}$ and PE$_{22}$ four cycles after, which is the $i+j$ skew.
+The diagonal accumulators finish at 30, 69 and 90, the diagonal of $C$, and
+\texttt{done} rises after $3N-1 = 8$ cycles.
 
-\section{Individual Contributions}
-Table~\ref{tab:contrib} lists the responsibility of each team member in
-Phase~I.
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{waveform_n3.png}
+\caption{Simulation waveform of one $3\times3$ multiplication (buffered design).}
+\label{fig:wave}
+\end{figure*}
+
+\subsection{Latency and Throughput}
+Table~\ref{tab:cycles} lists the measured cycle counts. Both match the formulas
+exactly. Running jobs back to back, the array finishes one matrix every $3N-1$
+cycles. Because the systolic latency grows linearly with $N$ and the baseline's
+cubically, the gain grows with array size (Fig.~\ref{fig:latency}): the
+testbench measures 87.15 MACs per cycle at $N = 16$.
 
 \begin{table}[t]
-\caption{Individual Contributions}
+\caption{Measured cycles (start $\rightarrow$ done)}
+\label{tab:cycles}
+\centering
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+ & \multicolumn{2}{c}{$N=3$} & \multicolumn{2}{c}{$N=4$} \\
+ & Systolic & Seq. & Systolic & Seq. \\
+\midrule
+MACs per matrix & 27 & 27 & 64 & 64 \\
+Latency (cycles) & 8 & 28 & 11 & 65 \\
+MACs per cycle & 3.38 & 0.96 & 5.82 & 0.98 \\
+Speed-up (cycles) & \multicolumn{2}{c}{3.50$\times$} & \multicolumn{2}{c}{5.91$\times$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{latency_vs_n.png}
+\caption{Latency of the systolic array and the sequential baseline versus $N$.}
+\label{fig:latency}
+\end{figure}
+
+\subsection{Synthesis: Resources and Maximum Frequency}
+Each design was synthesised inside \texttt{matmul\_top} with Yosys \cite{yosys}.
+For Xilinx 7-series (Artix-7) we report resource use. For timing, each design was
+placed and routed with nextpnr \cite{nextpnr} on a Lattice iCE40 HX8K. This
+device has no DSP blocks, so its multipliers are built from logic cells.
+Table~\ref{tab:synth} gives the results, and Fig.~\ref{fig:synth} the
+$4\times4$ comparison. Placement with two other random seeds gave 76.6 and
+80.7\,MHz for the buffered array and 44.4 and 47.5\,MHz for the Phase~I version,
+so the difference is not a placement accident.
+
+\begin{table}[t]
+\caption{Synthesis results (with the data interface)}
+\label{tab:synth}
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llrrrrr@{}}
+\toprule
+ & & \multicolumn{3}{c}{Xilinx 7-series} & \multicolumn{2}{c}{iCE40 HX8K} \\
+Design & $N$ & LUT & FF & DSP & LC & $F_{max}$ \\
+\midrule
+Systolic (II) & 3 & 436 & 399 & 9 & 3147 & 81.5 \\
+Systolic (I) & 3 & 382 & 351 & 12 & 3360 & 46.3 \\
+Sequential & 3 & 1119 & 581 & 3 & 1347 & 45.2 \\
+\midrule
+Systolic (II) & 4 & 707 & 735 & 16 & 5598 & 79.0 \\
+Systolic (I) & 4 & 600 & 639 & 16 & 5890 & 45.6 \\
+Sequential & 4 & 1141 & 973 & 3 & 2097 & 45.8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{synthesis_n4.png}
+\caption{$4\times4$ designs: maximum clock (left) and time per product (right).}
+\label{fig:synth}
+\end{figure}
+
+\begin{table}[t]
+\caption{Wall-clock time per matrix product}
+\label{tab:wall}
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Design & $N=3$ (ns) & $N=4$ (ns) & $N=4$ speed-up \\
+\midrule
+Systolic (II) & 98.2 & 139.2 & 10.20$\times$ \\
+Systolic (I) & 172.7 & 241.2 & 5.89$\times$ \\
+Sequential & 619.7 & 1420.1 & 1$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Input buffers versus multiplexers.} In the Phase~I design the critical
+path starts at the cycle counter $t$, passes through the feeder comparator and
+multiplexer, and only then enters the first PE's multiplier and adder. With the
+input buffers it starts at a register between two PEs and covers one MAC. The
+maximum clock rises from 45.6 to 79.0\,MHz at $N = 4$ (1.73$\times$) with the
+same 11-cycle latency. The cost is about 100 LUTs and 100 flip-flops for the
+shift registers. At $N = 3$ the buffered design even uses fewer DSP slices (9
+vs.\ 12): the Phase~I version spends three DSP slices outside its nine PEs,
+in the feeder logic, which the buffers do not need.
+
+\textbf{Systolic array versus sequential baseline.} The array maps one
+DSP48E1 to each PE (16 for $N = 4$) against 3 for the baseline. On the
+DSP-less iCE40 it needs 2.7$\times$ the logic cells. The baseline is not small,
+however: on Xilinx it uses more LUTs than the array (1141 vs.\ 707). Its single MAC is
+cheap, but it needs $N^2$-to-1 operand multiplexers and a decoder to scatter
+results into $C$. The array needs neither, because every operand travels to a
+neighbour and every result already sits in its own accumulator. Combining the
+5.91$\times$ cycle advantage with the 1.73$\times$ higher clock gives a
+10.2$\times$ wall-clock speed-up at $N = 4$ (Table~\ref{tab:wall}). Per logic
+cell, the array completes 3.8$\times$ more matrices per second.
+
+\textbf{Utilisation.} Each PE does useful work in $N$ of the $3N-2$ run cycles
+(40\,\% at $N = 4$); the rest is the diagonal wavefront filling and draining the
+array. Overlapping the fill of the next matrix with the drain of the current one
+would raise utilisation and throughput further.
+
+\subsection{Limitations}
+The results come from open-source tools; \texttt{synth/vivado\_synth.tcl}
+reproduces the experiment in Vivado for an Artix-7 when it is available. The
+design has not been run on a physical board, handles only square $N \times N$
+matrices (larger ones need tiling by a host), and does not overlap successive
+matrices.
+
+% ==========================================================================
+\section{Individual Contributions}
+Table~\ref{tab:contrib} lists each member's responsibilities. The commit history
+of the repository records the work of each phase.
+
+\begin{table}[t]
+\caption{Individual contributions}
 \label{tab:contrib}
 \centering
-\begin{tabular}{p{2.7cm}p{5.1cm}}
+\begin{tabular}{p{2.3cm}p{5.5cm}}
 \toprule
 Member & Contribution \\
 \midrule
-Anurag Kumar (Team Lead) & Overall architecture; top-level controller and
-input skew scheduling (\texttt{matmul\_accel}); repository and integration. \\
-Augustya Purohit & Processing element design (\texttt{pe}); signed arithmetic
-and bit-width analysis. \\
-Harsh Raj & Parameterised $N \times N$ mesh (\texttt{systolic\_array}) and
-interconnect structure. \\
-Sumit Yadav & Verification: self-checking testbench, reference model, test
-plan and waveform analysis. \\
-Adil Mirza & Literature review, block diagrams, project report and prototype
-demonstration video. \\
+Anurag Kumar (Team Lead) & Phase I: overall architecture; controller and
+input skew scheduling (\texttt{matmul\_accel}); repository and integration.
+Phase II: [to be completed]. \\
+Augustya Purohit & Phase I: processing element (\texttt{pe}); signed
+arithmetic and bit-width analysis. Phase II: [to be completed]. \\
+Harsh Raj & Phase I: $N \times N$ mesh (\texttt{systolic\_array}) and
+interconnect. Phase II: MAC unit, input buffers, sequential baseline, matrix
+data interface, comparison testbenches, synthesis flow and results, figures
+and final report. \\
+Sumit Yadav & Phase I: self-checking testbench, reference model, test plan
+and waveform analysis. Phase II: [to be completed]. \\
+Adil Mirza & Phase I: literature review, block diagrams, report and
+demonstration video. Phase II: [to be completed]. \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\section{Conclusion and Future Work}
-Phase~I delivers a parameterised systolic array matrix multiplier in Verilog
-that is verified bit-exactly against a reference model for six array sizes and
-two operand widths, with a latency of $3N-1$ cycles. In Phase~II we plan to
-synthesise the design for an FPGA to obtain area, timing and power figures; add
-a streaming memory-mapped interface so that operands need not be presented in
-parallel; support rectangular matrices; pipeline the multiplier to raise the
-clock frequency; and compare the accelerator against a sequential single-MAC
-baseline implemented in the same flow.
+% ==========================================================================
+\section{Conclusion}
+We designed, verified and synthesised a parameterised systolic array for signed
+fixed-point matrix multiplication, built from a MAC unit, processing elements,
+input buffers, a controller and a matrix data interface. A sequential baseline
+was built in the same flow. Every design was verified against a reference
+model at array sizes from 2 to 16 and with Q4.4 fixed-point operands. The array
+completes an $N \times N$ product in $3N - 1$ cycles instead of $N^3 + 1$.
+Replacing the counter-driven feeders with input buffers moved the critical path
+to a single MAC and raised the clock from 45.6 to 79.0\,MHz on an iCE40, with
+no change in latency. Together this gives a 10.2$\times$ wall-clock speed-up over
+the baseline at $N = 4$, at the cost of one multiplier per PE. These results
+show, at small scale, why systolic arrays dominate AI accelerators: local
+communication, operand reuse and a critical path that does not grow with the
+array. Future work: overlapping successive matrices to raise PE utilisation, a
+tiling controller for large matrices, a weight-stationary variant, and running
+the design on an FPGA board.
 
 \begin{thebibliography}{00}
 \bibitem{kungleiserson} H.~T.~Kung and C.~E.~Leiserson, ``Systolic arrays (for
@@ -294,9 +477,18 @@ Jan.~2017.
 \bibitem{sze} V.~Sze, Y.-H.~Chen, T.-J.~Yang, and J.~S.~Emer, ``Efficient
 processing of deep neural networks: A tutorial and survey,'' \emph{Proc. IEEE},
 vol.~105, no.~12, pp.~2295--2329, Dec.~2017.
+\bibitem{jacob} B.~Jacob \emph{et al.}, ``Quantization and training of neural
+networks for efficient integer-arithmetic-only inference,'' in \emph{Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR)}, 2018, pp.~2704--2713.
 \bibitem{hennessy} J.~L.~Hennessy and D.~A.~Patterson, \emph{Computer
 Architecture: A Quantitative Approach}, 6th~ed. Cambridge, MA, USA: Morgan
 Kaufmann, 2017.
+\bibitem{nextpnr} D.~Shah \emph{et al.}, ``Yosys+nextpnr: An open source
+framework from Verilog to bitstream for commercial FPGAs,'' in \emph{Proc. IEEE
+27th Annu. Int. Symp. Field-Programmable Custom Comput. Mach. (FCCM)}, 2019,
+pp.~1--4.
+\bibitem{yosys} C.~Wolf, ``Yosys Open SYnthesis Suite.'' [Online]. Available:
+\url{https://yosyshq.net/yosys/}
 \bibitem{iverilog} S.~Williams, ``Icarus Verilog.'' [Online]. Available:
 \url{https://steveicarus.github.io/iverilog/}
 \end{thebibliography}
