@@ -12,7 +12,7 @@ N        ?= 4
 DATA_W   ?= 8
 ACC_W    ?= 24
 
-RTL := rtl/pe.v rtl/systolic_array.v rtl/matmul_accel.v
+RTL := rtl/mac_unit.v rtl/pe.v rtl/systolic_array.v rtl/matmul_accel.v
 TB  := tb/tb_matmul_accel.v
 TOP := tb_matmul_accel
 
@@ -21,7 +21,7 @@ TOP := tb_matmul_accel
 # unit test of a single processing element
 sim-pe:
 	@mkdir -p build
-	$(IVERILOG) -g2005 -Wall -o build/tb_pe rtl/pe.v tb/tb_pe.v
+	$(IVERILOG) -g2005 -Wall -o build/tb_pe rtl/mac_unit.v rtl/pe.v tb/tb_pe.v
 	cd build && $(VVP) tb_pe
 
 sim:
