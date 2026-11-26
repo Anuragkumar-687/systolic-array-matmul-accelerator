@@ -1,6 +1,6 @@
 iverilog -g2005 -Wall \
 		-P tb_matmul_accel.N=4 -P tb_matmul_accel.DATA_W=8 -P tb_matmul_accel.ACC_W=24 \
-		-o build/tb rtl/pe.v rtl/systolic_array.v rtl/matmul_accel.v tb/tb_matmul_accel.v
+		-o build/tb rtl/mac_unit.v rtl/pe.v rtl/skew_buffer.v rtl/systolic_array.v rtl/matmul_accel.v tb/tb_matmul_accel.v
 cd build && vvp tb
 VCD info: dumpfile waves.vcd opened for output.
 ==============================================================

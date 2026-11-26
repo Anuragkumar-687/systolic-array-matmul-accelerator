@@ -1,4 +1,4 @@
-iverilog -g2005 -Wall -o build/tb_pe rtl/pe.v tb/tb_pe.v
+iverilog -g2005 -Wall -o build/tb_pe rtl/mac_unit.v rtl/pe.v tb/tb_pe.v
 cd build && vvp tb_pe
 VCD info: dumpfile pe_waves.vcd opened for output.
 ==============================================================
