@@ -109,6 +109,30 @@ These systems are large and target full networks. This project isolates the
 core idea in a compact, parameterised and openly verifiable design, and
 measures what it costs and gains against a sequential baseline.
 
+\begin{table*}[t]
+\caption{Comparison with published systolic and spatial accelerators}
+\label{tab:litcomp}
+\centering
+\begin{tabular}{@{}llllll@{}}
+\toprule
+Design & Array size (PEs) & Operand type & Dataflow & Clock frequency & Target \\
+\midrule
+TPU v1 \cite{tpu} & $256\times256$ (65,536) & 8-bit int & Weight-stationary & 700\,MHz & ASIC (28\,nm) \\
+Gemmini \cite{gemmini} & $16\times16$ (256) & 8-bit int & Output- / weight-stationary & 500\,MHz--1\,GHz & ASIC / FPGA \\
+Eyeriss \cite{eyeriss} & $12\times14$ (168) & 16-bit fixed point & Row-stationary & 100--250\,MHz & ASIC (65\,nm) \\
+This work & $4\times4$ (16) & 8-bit signed / Q4.4 & Output-stationary & 79.0\,MHz & FPGA (iCE40) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Table~\ref{tab:litcomp} places our design alongside these accelerators. Whereas
+the TPU, Gemmini and Eyeriss scale to hundreds or tens of thousands of PEs on
+custom ASICs (or large datacentre FPGAs), our design is a compact $4\times4$
+array targeting a small Lattice iCE40 FPGA. It uses an output-stationary
+dataflow---each PE accumulates one output element in place, as shown in the
+array cells of Fig.~\ref{fig:block}---so that the core systolic mechanism can
+be verified and benchmarked end to end without external DRAM or NoC complexity.
+
 % ==========================================================================
 \section{Proposed Solution}
 \subsection{Architecture}
@@ -437,7 +461,8 @@ Sumit Yadav & Phase I: self-checking testbench, reference model, test plan
 and waveform analysis. Phase II: unit testbench and verification for the
 input buffer (\texttt{tb\_skew\_buffer}, \texttt{make sim-skew}). \\
 Adil Mirza & Phase I: literature review, block diagrams, report and
-demonstration video. Phase II: [to be completed]. \\
+demonstration video. Phase II: literature comparison table against TPU, Gemmini
+and Eyeriss, and final report updates. \\
 \bottomrule
 \end{tabular}
 \end{table}
